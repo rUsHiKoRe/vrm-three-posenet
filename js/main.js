@@ -1,16 +1,16 @@
-//モデルの位置
+// Model position
 const posX = 0;
 const posY = -1;
 const posZ = -2.0;
-//モデルのサイズ
+// Model size
 const scale = 1.0;
 
 let renderer, scene, camera;
 let loading;
 
-//THREEのレンダラの初期化
+//THREE Early renderer
 const initRenderer = async () => {
-	//z-fighting対策でlogarithmicDepthBufferを指定
+	//Specify logarithmic DepthBuffer as a z-fighting measure
 	renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, logarithmicDepthBuffer: true });
 	renderer.gammaOutput = true;
 	renderer.setClearColor(new THREE.Color(0xffffff), 0);
@@ -20,7 +20,7 @@ const initRenderer = async () => {
 	renderer.domElement.style.left = "0px";
 	document.body.appendChild(renderer.domElement);
 }
-//THREEのシーンの初期化
+//THREE scene initialization
 const initScene = async () => {
 	scene = new THREE.Scene();
 
@@ -32,16 +32,16 @@ const initScene = async () => {
 	let light = new THREE.AmbientLight(0xffffff, 1.0);
 	scene.add(light);
 
-	//VRMモデルの読み込み
+	//Loading VRM model
 	let result = await loadModel();
 
 	return result;
 }
 
-//モデルデータ
+//Model data
 let dst = {};
 
-//VRMモデルの読み込み
+//Loading VRM model
 const loadModel = async () => {
 	let vrmLoader = new THREE.VRMLoader();
 	let result = await new Promise(resolve => {
@@ -99,8 +99,8 @@ const loadModel = async () => {
 			dst["footL"]      = vrm.scene.getObjectByName("J_Bip_L_Foot");
 			dst["footR"]      = vrm.scene.getObjectByName("J_Bip_R_Foot");
 /*
-			//VRoidの0.2.11から鼻のボーンが無くなったので頭の傾きは一旦取り下げ
-			//PoseNet側に鼻、両目、両耳のキーポイントがあるので5点アルゴリズムで姿勢は計算できる？
+			//Since the nose bone has disappeared from 0.2.11 of VRoid, the inclination of the head is temporarily withdrawn			
+			// Since there are key points for the nose, eyes, and ears on the PoseNet side, can the posture be calculated with the 5-point algorithm?
 			dst["nose"]       = vrm.scene.getObjectByName("J_Adj_C_FaceNose");
 			dst["eyeL"]       = vrm.scene.getObjectByName("J_Adj_L_FaceEyeSet");
 			dst["eyeR"]       = vrm.scene.getObjectByName("J_Adj_R_FaceEyeSet");
@@ -124,7 +124,13 @@ let stats = new Stats();
 document.body.appendChild(stats.dom);
 
 const bindPage = async () => {
-	const net = await posenet.load(0.75);
+	const net = await posenet.load({
+		architecture: 'MobileNetV1',
+		outputStride: 16,
+		inputResolution: { width: 640, height: 480 },
+		//inputResolution: { width: 1400, height: 800 },
+		multiplier: 0.75
+	  });
 	const video = await loadVideo();
 	/*
 	let video = document.getElementById("video");
@@ -139,7 +145,7 @@ const bindPage = async () => {
 	const resRenderer = initRenderer();
 	const resScene = initScene();
 
-	//レンダラ、シーンの初期化が済んでいるか
+	// Renderer, is the scene initialized?
 	await Promise.all([resRenderer, resScene]);
 
 	loading = document.getElementById("loading");
@@ -189,7 +195,7 @@ const bindPage = async () => {
 		const deg2rad = (deg) => { return deg * Math.PI / 180.0; }
 		const rad2deg = (rad) => { return rad * 180.0 / Math.PI; }
 
-		//srcのrootからnodeとnodeからleafの角度でdstを回転
+		// Rotate dst from root to node and node to leaf angle in src		
 		const updateJoint = (src, root, node, leaf, dst, min = -360, max = 360) => {
 			let from = src[leaf].clone().sub(src[node]).normalize();
 			let to = src[node].clone().sub(src[root]).normalize();
@@ -201,7 +207,7 @@ const bindPage = async () => {
 			dst.rotation.setFromQuaternion(quat);
 		}
 
-		//回転角度の調整
+		//Adjustment of rotation angle
 		const adjJoint = (x, y, z, dst) => {
 			let quatX = new THREE.Quaternion();
 			quatX.setFromAxisAngle(vecX, deg2rad(x));
@@ -235,59 +241,59 @@ const bindPage = async () => {
 			let joint = {};
 			Object.keys(src).forEach((key) => { 
 				if(src[key].score > minPartConfidence){
-					//PoseNetの機能強化あるいは他の姿勢推定ライブラリに切り替えられるようVector3で作っておく
+					//Make it with Vector3 so that you can switch to PoseNet enhancements or other posture estimation libraries
 					joint[key]  = new THREE.Vector3(src[key].position.x, videoHeight - src[key].position.y, 0);
 				}
 			});
 
-			//左腕
+			//Left arm
 			if(joint["upperArmL"]){
 				if(joint["lowerArmL"]){
 					if(joint["upperArmR"]){ 
 						updateJoint(joint, "upperArmR", "upperArmL", "lowerArmL", dst["upperArmL"]); 
-						//adjJoint(0, -30, 0, dst["upperArmL"]); //ダミー
+						//adjJoint (0, -30, 0, dst ["upperArmL"]); // Dummy
 					}
 					if(joint["handL"]){ 
 						updateJoint(joint, "upperArmL", "lowerArmL", "handL", dst["lowerArmL"]); 
 
-						//常に手のひらを向けるよう補正
+						//Corrected to always turn the palm
 						let armLow2Hand = joint["handL"].clone().sub(joint["lowerArmL"]).normalize();
 						let angleX = rad2deg(armLow2Hand.y) + 90;
 						let angleY = Math.min(0, rad2deg(armLow2Hand.x));
 						adjJoint(angleX, angleY, 0, dst["lowerArmL"]);
 
 						dst["handL"].rotation.setFromQuaternion(new THREE.Quaternion());
-						//adjJoint(0, 0, -20, dst["handL"]); //ダミー
+						//adjJoint (0, 0, -20, dst ["handL"]); // Dummy
 					}
 				}
 			}
-			//右腕
+			//Right arm
 			if(joint["upperArmR"]){
 				if(joint["lowerArmR"]){
 					if(joint["upperArmL"]){ 
 						updateJoint(joint, "upperArmL", "upperArmR", "lowerArmR", dst["upperArmR"]); 
-						//adjJoint(0, 30, 0, dst["upperArmR"]); //ダミー
+						//adjJoint(0, 30, 0, dst["upperArmR"]); //Dummy
 					}
 					if(joint["handR"]){ 
 						updateJoint(joint, "upperArmR", "lowerArmR", "handR", dst["lowerArmR"]); 
 
-						//常に手のひらを向けるよう補正
+						//Corrected to always turn the palm
 						let armLow2Hand = joint["handR"].clone().sub(joint["lowerArmR"]).normalize();
 						let angleX = rad2deg(armLow2Hand.y) + 90;
 						let angleY = Math.max(0, rad2deg(armLow2Hand.x));
 						adjJoint(angleX, angleY, 0, dst["lowerArmR"]);
 
 						dst["handR"].rotation.setFromQuaternion(new THREE.Quaternion());
-						//adjJoint(0, 0, 20, dst["handR"]); //ダミー
+						//adjJoint(0, 0, 20, dst["handR"]); //Dummy
 					}
 				}
 			}
-			//胸
+			//breast
 			if(joint["upperArmL"] && joint["upperArmR"]){
 				joint["upperArmLL"] = joint["upperArmL"].clone().add(vecX);
 				updateJoint(joint, "upperArmLL", "upperArmL", "upperArmR", dst["upperChest"], -20, 20);
 			}
-			//頭
+			//Head
 /*
 			if(joint["eyeL"] && joint["eyeR"]){
 				if(joint["nose"]){
@@ -299,15 +305,15 @@ const bindPage = async () => {
 					const adjZ = 0.1, minZ = deg2rad(-45), maxZ = deg2rad(45);
 
 					//////////////////////////////////////////////////////////
-					//両目の中央から鼻までの高さと、モデルの同部分の比率が首のX軸の角度
-					//距離が長ければ下向き、短ければ上向き
-					//鼻が目より上に来るほど上向いた場合、まず姿勢推定が失敗するので考えない
+					// The ratio of the height from the center of both eyes to the nose and the same part of the model is the angle of the X axis of the neck
+// Downward if the distance is long, upward if the distance is short
+// If the nose is raised above the eyes, the posture estimation will fail first, so don't think about it.
 					let eyeL2R = joint["eyeR"].clone().sub(joint["eyeL"]).normalize();
 					let eyeL2Nose = joint["nose"].clone().sub(joint["eyeL"]);
 
-					//左目から右目のベクトルに、左目から鼻のベクトルを射影
-					//なので、実際には「両目の中央」ではないので注意
-					let relEyeL2NosePrjEyeL2R = eyeL2Nose.projectOnVector(eyeL2R);
+// Project the vector from the left eye to the vector from the right eye and the vector from the left eye to the nose
+// So be careful as it is not actually the "center of both eyes"					
+let relEyeL2NosePrjEyeL2R = eyeL2Nose.projectOnVector(eyeL2R);
 					let absEyeL2NosePrjEyeL2R = relEyeL2NosePrjEyeL2R.clone().add(joint["eyeL"]);
 
 					let eyeLen = joint["eyeR"].clone().sub(joint["eyeL"]).length();
@@ -319,19 +325,19 @@ const bindPage = async () => {
 					quatX.setFromAxisAngle(axisX, angleX);
 
 					//////////////////////////////////////////////////////////
-					//両目の軸上での鼻の位置が首のY軸の角度
-					//中央と比較したいので2で割る
+					// The position of the nose on the axes of both eyes is the angle of the Y axis of the neck
+					// Divide by 2 because I want to compare with the center					
 					let halfEyeLen = eyeLen / 2;
 					let projLen = relEyeL2NosePrjEyeL2R.length();
 					let axisY = new THREE.Vector3(0, -1, 0);
 
-					//右向きが正、左向きが負になるよう1を引く
+					// Subtract 1 so that the right direction is positive and the left direction is negative
 					let angleY = ((projLen / halfEyeLen) - 1) * adjY;
 					angleY = Math.max(minY, Math.min(maxY, angleY));
 					quatY.setFromAxisAngle(axisY, angleY);
 
 					//////////////////////////////////////////////////////////
-					//両肩の角度と両目の角度の差分が首のZ軸の角度
+					// The difference between the angle of both shoulders and the angle of both eyes is the angle of the Z axis of the neck
 					if(joint["upperArmL"] && joint["upperArmR"]){
 						let armL2R = joint["upperArmR"].clone().sub(joint["upperArmL"]).normalize();
 						let axisZ = eyeL2R.clone().cross(armL2R).normalize();
@@ -341,16 +347,16 @@ const bindPage = async () => {
 					}
 
 					//////////////////////////////////////////////////////////
-					//X軸はneckではなくheadの位置で曲がる
+					//// The X axis bends at the head position instead of the neck
 					let quat = quatY.multiply(quatZ);
 					dst["neck"].rotation.setFromQuaternion(quat);
 					dst["head"].rotation.setFromQuaternion(quatX);
 				}
 			}
 */
-			//腰
+			//Waist
 			if(joint["upperLegL"] && joint["upperLegR"]){
-				//基準点が無いので左肩の左水平方向に仮のジョイントを作る
+				//Since there is no reference point, make a temporary joint in the left horizontal direction of the left shoulder
 				joint["upperLegLL"] = joint["upperLegL"].clone().add(vecX);
 				updateJoint(joint, "upperLegLL", "upperLegL", "upperLegR", dst["spine"], -10, 10);
 
@@ -360,13 +366,13 @@ const bindPage = async () => {
 				let x = -(pos.x - (videoWidth / 2)) / videoWidth;
 				dst["hips"].position.x = x * adjX;
 
-				//adjJoint(-20, 0, 0, dst["spine"]); //ダミー
+				//adjJoint (-20, 0, 0, dst ["spine"]); // Dummy
 			}
-			//左脚
+			//Left leg
 			if(joint["upperLegL"]){
 				if(joint["lowerLegL"]){
 					if(joint["upperLegR"]){
-						//基準点が無いので左脚付け根の上方向に仮のジョイントを作る
+						//Since there is no reference point, make a temporary joint upward at the base of the left leg.
 						joint["upperLegLUp"] = joint["upperLegR"].clone().sub(joint["upperLegL"]).normalize();
 						joint["upperLegLUp"].applyAxisAngle(vecZ, -halfPi).add(joint["upperLegL"]);
 						updateJoint(joint, "upperLegLUp", "upperLegL", "lowerLegL", dst["upperLegL"], -20, 20); 
@@ -374,23 +380,23 @@ const bindPage = async () => {
 					if(joint["footL"]){ 
 						updateJoint(joint, "upperLegL", "lowerLegL", "footL", dst["lowerLegL"], -20, 20); 
 
-						//基準点が無いので左足首の下垂直方向に仮のジョイントを作る
+						//Since there is no reference point, make a temporary joint vertically below the left ankle.
 						joint["footLDown"] = joint["footL"].clone().sub(vecY);
 						updateJoint(joint, "lowerLegL", "footL", "footLDown", dst["footL"]); 
 					}else{
-						//基準点が無いので左膝の下垂直方向に仮のジョイントを作る
+						//Since there is no reference point, make a temporary joint in the vertical direction below the left knee.
 						joint["lowerLegLDown"] = joint["lowerLegL"].clone().sub(vecY);
 						updateJoint(joint, "upperLegL", "lowerLegL", "lowerLegLDown", dst["lowerLegL"]); 
 						updateJoint(joint, "lowerLegL", "lowerLegLDown", "lowerLegLDown", dst["footL"]); 
 					}
-					//adjJoint(0, 10, 0, dst["footL"]); //ダミー
+					//adjJoint(0, 10, 0, dst["footL"]); //Dummy
 				}
 			}
-			//右脚
+			//Right leg
 			if(joint["upperLegR"]){
 				if(joint["lowerLegR"]){
 					if(joint["upperLegL"]){
-						//基準点が無いので右脚付け根の上方向に仮のジョイントを作る
+						//Since there is no reference point, make a temporary joint upward at the base of the right leg.
 						joint["upperLegRUp"] = joint["upperLegL"].clone().sub(joint["upperLegR"]).normalize();
 						joint["upperLegRUp"].applyAxisAngle(vecZ, halfPi).add(joint["upperLegR"]);
 						updateJoint(joint, "upperLegRUp", "upperLegR", "lowerLegR", dst["upperLegR"], -20, 20); 
@@ -398,16 +404,16 @@ const bindPage = async () => {
 					if(joint["footR"]){ 
 						updateJoint(joint, "upperLegR", "lowerLegR", "footR", dst["lowerLegR"], -20, 20); 
 
-						//基準点が無いので右足首の下垂直方向に仮のジョイントを作る
+						//Since there is no reference point, make a temporary joint in the vertical direction below the right ankle.
 						joint["footRDown"] = joint["footR"].clone().sub(vecY);
 						updateJoint(joint, "lowerLegR", "footR", "footRDown", dst["footR"]); 
 					}else{
-						//基準点が無いので右膝の下垂直方向に仮のジョイントを作る
+						//Since there is no reference point, make a temporary joint in the vertical direction below the right knee.
 						joint["lowerLegRDown"] = joint["lowerLegR"].clone().sub(vecY);
 						updateJoint(joint, "upperLegR", "lowerLegR", "lowerLegRDown", dst["lowerLegR"]); 
 						updateJoint(joint, "lowerLegR", "lowerLegRDown", "lowerLegRDown", dst["footR"]); 
 					}
-					//adjJoint(0, -10, 0, dst["footR"]); //ダミー
+					//adjJoint(0, -10, 0, dst["footR"]); //Dummy
 				}
 			}
 		});
